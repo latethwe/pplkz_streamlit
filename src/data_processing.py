@@ -25,10 +25,10 @@ METRIC_KIND_MAP = {
 }
 
 METRIC_KIND_LABEL = {
-    "want": "Want %",
-    "dont_want": "Don't want %",
-    "brand_awareness": "Know brand %",
-    "uncertainty": "Uncertain %",
+    "want": "Хотят работать, %",
+    "dont_want": "Не хотят работать, %",
+    "brand_awareness": "Знают бренд, %",
+    "uncertainty": "Не уверены, %",
 }
 
 
