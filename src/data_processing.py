@@ -25,10 +25,10 @@ METRIC_KIND_MAP = {
 }
 
 METRIC_KIND_LABEL = {
-    "want": "Хотят работать, %",
-    "dont_want": "Не хотят работать, %",
-    "brand_awareness": "Знают бренд, %",
-    "uncertainty": "Не уверены, %",
+    "want": "Хотят работать",
+    "dont_want": "Не хотят работать",
+    "brand_awareness": "Знают компанию",
+    "uncertainty": "Не уверены",
 }
 
 
@@ -43,13 +43,15 @@ class SurveyData:
 
 
 def normalize_company_name(name: Any) -> str:
+    """Нормализует название компании для использования как ключ"""
     s = str(name or "").lower().strip()
-    for ch in ["&", "/", "-", "(", ")", ".", ",", "«", "»", "“", "”", "'", "\""]:
+    for ch in ["&", "/", "-", "(", ")", ".", ",", "«", "»", """, """, "'", "\""]:
         s = s.replace(ch, " ")
     return " ".join(s.split())
 
 
 def _float_or_none(v: Any) -> float | None:
+    """Преобразует значение в float или None"""
     try:
         if v in (None, "", "-"):
             return None
@@ -59,6 +61,7 @@ def _float_or_none(v: Any) -> float | None:
 
 
 def _int_or_none(v: Any) -> int | None:
+    """Преобразует значение в int или None"""
     f = _float_or_none(v)
     if f is None:
         return None
@@ -66,6 +69,7 @@ def _int_or_none(v: Any) -> int | None:
 
 
 def _find_col(df: pd.DataFrame, target: str) -> Any:
+    """Находит колонку по точному названию"""
     for c in df.columns:
         if str(c).strip() == target:
             return c
@@ -73,6 +77,7 @@ def _find_col(df: pd.DataFrame, target: str) -> Any:
 
 
 def _parse_companies_meta(path: Path) -> pd.DataFrame:
+    """Парсит метаданные компаний из Excel"""
     wb = load_workbook(path, data_only=True)
     ws = wb["Ответы на форму"]
     rows = []
@@ -93,6 +98,7 @@ def _parse_companies_meta(path: Path) -> pd.DataFrame:
 
 
 def _parse_rankings(path: Path) -> pd.DataFrame:
+    """Парсит рейтинги компаний из Excel"""
     wb = load_workbook(path, data_only=True)
     ws = wb["Свод (ТОП ВСЕ Компании)"]
 
@@ -141,17 +147,21 @@ def _parse_rankings(path: Path) -> pd.DataFrame:
 
 
 def load_survey_data(path: str | Path) -> SurveyData:
+    """Загружает все данные опроса из Excel файла"""
     file_path = Path(path)
     if not file_path.exists():
         raise FileNotFoundError(f"File not found: {file_path}")
 
+    # Парсим компании и рейтинги
     companies_meta = _parse_companies_meta(file_path)
     rankings = _parse_rankings(file_path)
 
+    # Загружаем ответы
     responses = pd.read_excel(file_path, sheet_name="Ответы на форму", header=2)
     responses = responses.dropna(axis=1, how="all").copy()
     responses = responses[responses.notna().any(axis=1)].copy()
 
+    # Конвертируем числовые колонки
     for c in ["Номер ответа", "Оцените наш опросник"]:
         if c in responses.columns:
             responses[c] = pd.to_numeric(responses[c], errors="coerce")
@@ -159,9 +169,11 @@ def load_survey_data(path: str | Path) -> SurveyData:
     if "Номер ответа" in responses.columns:
         responses["Номер ответа"] = responses["Номер ответа"].astype("Int64")
 
+    # Подготавливаем данные респондентов
     respondents = responses.copy()
     respondents["respondent_id"] = respondents["Номер ответа"].astype("Int64")
 
+    # Преобразуем сырые ответы в длинный формат
     raw_company_cols = list(responses.columns[16:109])
     company_raw_long = responses[["Номер ответа"] + raw_company_cols].melt(
         id_vars=["Номер ответа"], value_vars=raw_company_cols, var_name="company", value_name="response_raw"
@@ -172,11 +184,13 @@ def load_survey_data(path: str | Path) -> SurveyData:
     company_raw_long["company_key"] = company_raw_long["company"].map(normalize_company_name)
     company_raw_long["response_mapped"] = company_raw_long["response_raw"].map(RAW_RESPONSE_TO_MAPPED)
 
+    # Добавляем информацию о секторе
     company_raw_long = company_raw_long.merge(
         companies_meta[["company_key", "sector"]], on="company_key", how="left"
     )
     company_raw_long["sector"] = company_raw_long["sector"].fillna("Unknown")
 
+    # Преобразуем маппированные ответы в длинный формат
     mapped_company_cols = [c for c in responses.columns[111:205] if str(c) != "открытый вопрос"]
     company_mapped_long = responses[["Номер ответа"] + mapped_company_cols].melt(
         id_vars=["Номер ответа"], value_vars=mapped_company_cols, var_name="company_mapped_col", value_name="response_mapped_sheet"
@@ -188,6 +202,7 @@ def load_survey_data(path: str | Path) -> SurveyData:
     )
     company_mapped_long["company_key"] = company_mapped_long["company"].map(normalize_company_name)
 
+    # Парсим факторы
     factor_defs = [
         ("top_factors", ["1", "2", "3"]),
         ("offer_reject_factors", ["1.1", "2.1", "3.1"]),
@@ -204,6 +219,7 @@ def load_survey_data(path: str | Path) -> SurveyData:
             s["factor_group"] = group_name
             s["rank_position"] = pos
             factor_rows.append(s)
+    
     factors_long = pd.concat(factor_rows, ignore_index=True) if factor_rows else pd.DataFrame()
     if not factors_long.empty:
         factors_long["respondent_id"] = factors_long["respondent_id"].astype("Int64")
@@ -211,6 +227,7 @@ def load_survey_data(path: str | Path) -> SurveyData:
         factors_long["factor"] = factors_long["factor"].astype(str).str.strip()
         factors_long = factors_long[factors_long["factor"] != ""].copy()
 
+    # Добавляем информацию о секторе в рейтинги
     if not rankings.empty:
         rankings = rankings.merge(
             companies_meta[["company_key", "sector"]].rename(columns={"sector": "sector_meta"}),
@@ -220,6 +237,7 @@ def load_survey_data(path: str | Path) -> SurveyData:
         rankings["sector"] = rankings["sector"].fillna(rankings["sector_meta"]).fillna("Unknown")
         rankings = rankings.drop(columns=["sector_meta"])
 
+    # Создаём справочник компаний
     companies = (
         rankings[["company", "company_key", "sector"]]
         .drop_duplicates(subset=["company_key"])
@@ -244,6 +262,7 @@ def apply_respondent_filters(
     selected_experience: list[str] | None = None,
     selected_specialization: list[str] | None = None,
 ) -> pd.DataFrame:
+    """Применяет фильтры к данным респондентов"""
     df = respondents.copy()
     if selected_gender:
         df = df[df["Гендер"].isin(selected_gender)]
