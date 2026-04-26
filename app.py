@@ -263,9 +263,10 @@ def setup_page():
     """, unsafe_allow_html=True)
 
 
-DATA_PATH = Path("Copy_2026.xlsx")
+DATA_PATH = Path(__file__).parent / "data" / "Copy_2026.xlsx"
 
 AGE_ORDER = ["Младше 21", "22 - 26", "27 - 31", "32 - 36", "37 - 41", "42 - 46", "Старше 46"]
+EXPERIENCE_ORDER = ["Менее 2 лет", "3 - 6", "7 - 10", "11 - 14", "15 - 19", "Более 20 лет"]
 RAW_RESPONSE_ORDER = [
     "Однозначно хочу",
     "Скорее да",
@@ -348,17 +349,28 @@ def _make_pct_table(df: pd.DataFrame, category_col: str, sort_categories: list[s
     return out
 
 
-def _bar_pct_vertical(df: pd.DataFrame, x_col: str, y_col: str, title: str, color_col: str | None = None) -> alt.Chart:
+def _bar_pct_vertical(
+    df: pd.DataFrame,
+    x_col: str,
+    y_col: str,
+    title: str,
+    color_col: str | None = None,
+    x_sort: list[str] | None = None,
+) -> alt.Chart:
+    sort_order = x_sort
+    if isinstance(df[x_col].dtype, pd.CategoricalDtype):
+        sort_order = sort_order or df[x_col].cat.categories.tolist()
+
     if color_col:
         bar = alt.Chart(df).mark_bar(cornerRadius=4).encode(
-            x=alt.X(f"{x_col}:N", title=x_col, axis=alt.Axis(labelAngle=0)),
+            x=alt.X(f"{x_col}:N", title=x_col, axis=alt.Axis(labelAngle=0), sort=sort_order),
             y=alt.Y(f"{y_col}:Q", title="%", axis=alt.Axis(format=".1f")),
             color=alt.Color(f"{color_col}:N", scale=alt.Scale(scheme="tableau10")),
             tooltip=[x_col, color_col, alt.Tooltip(f"{y_col}:Q", format=".1f")],
         )
     else:
         bar = alt.Chart(df).mark_bar(color="#3b82f6", cornerRadius=4).encode(
-            x=alt.X(f"{x_col}:N", title=x_col, axis=alt.Axis(labelAngle=0)),
+            x=alt.X(f"{x_col}:N", title=x_col, axis=alt.Axis(labelAngle=0), sort=sort_order),
             y=alt.Y(f"{y_col}:Q", title="%", axis=alt.Axis(format=".1f")),
             tooltip=[x_col, alt.Tooltip(f"{y_col}:Q", format=".1f")],
         )
@@ -372,18 +384,23 @@ def _bar_pct_vertical(df: pd.DataFrame, x_col: str, y_col: str, title: str, colo
 
 
 def _bar_pct_horizontal(
-    df: pd.DataFrame, x_col: str, y_col: str, title: str, color_col: str | None = None
+    df: pd.DataFrame,
+    x_col: str,
+    y_col: str,
+    title: str,
+    color_col: str | None = None,
+    unit_title: str = "%",
 ) -> alt.Chart:
     if color_col:
         bar = alt.Chart(df).mark_bar(cornerRadius=4).encode(
-            x=alt.X(f"{x_col}:Q", title="%", axis=alt.Axis(format=".1f")),
+            x=alt.X(f"{x_col}:Q", title=unit_title, axis=alt.Axis(format=".1f")),
             y=alt.Y(f"{y_col}:N", sort="-x", title=y_col),
             color=alt.Color(f"{color_col}:N", scale=alt.Scale(scheme="tableau10")),
             tooltip=[y_col, color_col, alt.Tooltip(f"{x_col}:Q", format=".1f")],
         )
     else:
         bar = alt.Chart(df).mark_bar(color="#3b82f6", cornerRadius=4).encode(
-            x=alt.X(f"{x_col}:Q", title="%", axis=alt.Axis(format=".1f")),
+            x=alt.X(f"{x_col}:Q", title=unit_title, axis=alt.Axis(format=".1f")),
             y=alt.Y(f"{y_col}:N", sort="-x", title=y_col),
             tooltip=[y_col, alt.Tooltip(f"{x_col}:Q", format=".1f")],
         )
@@ -395,11 +412,23 @@ def _bar_pct_horizontal(
     return (bar + text).properties(title=title, height=400).configure_title(fontSize=14, anchor="start", color="#60a5fa")
 
 
-def _grouped_pct_chart(df: pd.DataFrame, x: str, group: str, y: str, title: str) -> alt.Chart:
+def _grouped_pct_chart(
+    df: pd.DataFrame,
+    x: str,
+    group: str,
+    y: str,
+    title: str,
+    unit_title: str = "%",
+    x_sort: list[str] | None = None,
+) -> alt.Chart:
+    sort_order = x_sort
+    if isinstance(df[x].dtype, pd.CategoricalDtype):
+        sort_order = sort_order or df[x].cat.categories.tolist()
+
     bar = alt.Chart(df).mark_bar(cornerRadius=3).encode(
-        x=alt.X(f"{x}:N", title=x),
+        x=alt.X(f"{x}:N", title=x, sort=sort_order),
         xOffset=alt.XOffset(f"{group}:N", title=group),
-        y=alt.Y(f"{y}:Q", title="%", axis=alt.Axis(format=".1f")),
+        y=alt.Y(f"{y}:Q", title=unit_title, axis=alt.Axis(format=".1f")),
         color=alt.Color(f"{group}:N", scale=alt.Scale(scheme="tableau10")),
         tooltip=[x, group, alt.Tooltip(f"{y}:Q", format=".1f")],
     )
@@ -496,7 +525,9 @@ def main() -> None:
         ages = [x for x in AGE_ORDER if x in respondents["Возраст"].dropna().unique().tolist()] + sorted(
             [x for x in respondents["Возраст"].dropna().unique().tolist() if x not in AGE_ORDER]
         )
-        exps = sorted([x for x in respondents["Опыт работы в ИТ / Digital"].dropna().unique().tolist()])
+        exps = [x for x in EXPERIENCE_ORDER if x in respondents["Опыт работы в ИТ / Digital"].dropna().unique().tolist()] + sorted(
+            [x for x in respondents["Опыт работы в ИТ / Digital"].dropna().unique().tolist() if x not in EXPERIENCE_ORDER]
+        )
         specs = sorted([x for x in respondents["К какой специализации Вы себя относите?"].dropna().unique().tolist()])
 
         selected_gender = st.multiselect("👥 Гендер", genders, default=genders)
@@ -549,15 +580,23 @@ def main() -> None:
         c1, c2 = st.columns(2)
         with c1:
             age_df = _make_pct_table(filtered_resp, "Возраст", ages)
-            st.altair_chart(_bar_pct_vertical(age_df, "Возраст", "pct", "По возрасту"), use_container_width=True)
+            st.altair_chart(
+                _bar_pct_vertical(age_df, "Возраст", "pct", "По возрасту", x_sort=ages),
+                use_container_width=True,
+            )
         with c2:
             gender_df = _make_pct_table(filtered_resp, "Гендер")
             st.altair_chart(_bar_pct_vertical(gender_df, "Гендер", "pct", "По гендеру"), use_container_width=True)
 
         c3, c4 = st.columns(2)
         with c3:
-            exp_df = _make_pct_table(filtered_resp, "Опыт работы в ИТ / Digital")
-            st.altair_chart(_bar_pct_vertical(exp_df, "Опыт работы в ИТ / Digital", "pct", "По опыту в IT"), use_container_width=True)
+            exp_df = _make_pct_table(filtered_resp, "Опыт работы в ИТ / Digital", EXPERIENCE_ORDER)
+            st.altair_chart(
+                _bar_pct_vertical(
+                    exp_df, "Опыт работы в ИТ / Digital", "pct", "По опыту в IT", x_sort=EXPERIENCE_ORDER
+                ),
+                use_container_width=True,
+            )
         with c4:
             spec_df = _make_pct_table(filtered_resp, "К какой специализации Вы себя относите?")
             spec_df = spec_df.head(15).copy()
@@ -576,7 +615,6 @@ def main() -> None:
                 top_n = st.slider("Количество факторов", 5, 30, 15)
                 top, by_pos = _prepare_factor_distribution(fdf, top_n)
                 st.altair_chart(_bar_pct_horizontal(top, "pct", "factor", f"{FACTOR_GROUP_LABELS[group_key]}"), use_container_width=True)
-                st.altair_chart(_grouped_pct_chart(by_pos, "factor", "rank_position", "pct", "По позициям"), use_container_width=True)
 
     with tab3:
         st.markdown("### Рейтинг компаний")
@@ -610,21 +648,29 @@ def main() -> None:
             top_down = movers.sort_values("change_pp", ascending=True).head(15).copy()
             for df_ in [top_up, top_down]:
                 df_["pct"] = (df_["change_pp"] * 100).round(1)
-                df_["label"] = df_["pct"].map(lambda x: f"{x:.1f} п.п.")
+                df_["label"] = df_["pct"].map(lambda x: f"{x:.1f}%")
             
             c1, c2 = st.columns(2)
             with c1:
-                st.altair_chart(_bar_pct_horizontal(top_up, "pct", "company", "📈 Лидеры роста", "sector"), use_container_width=True)
+                st.altair_chart(
+                    _bar_pct_horizontal(top_up, "pct", "company", "📈 Лидеры роста", "sector", unit_title="%"),
+                    use_container_width=True,
+                )
             with c2:
-                st.altair_chart(_bar_pct_horizontal(top_down, "pct", "company", "📉 Лидеры падения", "sector"), use_container_width=True)
+                st.altair_chart(
+                    _bar_pct_horizontal(top_down, "pct", "company", "📉 Лидеры падения", "sector", unit_title="%"),
+                    use_container_width=True,
+                )
 
-        show = yoy[["company", "sector", "pct_2025", "pct_2026", "change_pp", "rank_2025", "rank_2026", "change_rank"]].copy()
+        show = yoy[
+            ["company", "sector", "pct_2025", "pct_2026", "change_pp", "rank_2025", "rank_2026", "change_rank"]
+        ].copy()
         show["pct_2025"] = (show["pct_2025"] * 100).round(1)
         show["pct_2026"] = (show["pct_2026"] * 100).round(1)
         show["change_pp"] = (show["change_pp"] * 100).round(1)
         show = show.rename(columns={
             "company": "Компания", "sector": "Сектор", "pct_2025": "2025, %",
-            "pct_2026": "2026, %", "change_pp": "Изм., п.п.", "rank_2025": "Место 2025",
+            "pct_2026": "2026, %", "change_pp": "Изм., %", "rank_2025": "Место 2025",
             "rank_2026": "Место 2026", "change_rank": "Изм. места",
         })
         st.dataframe(show.sort_values("2026, %", ascending=False), use_container_width=True, hide_index=True)
@@ -649,7 +695,16 @@ def main() -> None:
                     continue
                 row = by_metric.loc[mk]
                 with mcols[i]:
-                    st.metric(METRIC_KIND_LABEL[mk], _pct(row["pct_2026"]), f"Δ {_pct(row['change_pp'])}")
+                    st.metric(METRIC_KIND_LABEL[mk], _pct(row["pct_2026"]))
+                    if pd.notna(row.get("change_pp")):
+                        st.caption(f"Изменение к 2025: {row['change_pp'] * 100:+.1f}%")
+                    else:
+                        st.caption("Изменение к 2025: n/a")
+                    if pd.notna(row.get("rank_2025")) and pd.notna(row.get("rank_2026")):
+                        rank_delta = int(row["rank_2025"]) - int(row["rank_2026"])
+                        st.caption(f"Позиция: {int(row['rank_2025'])} → {int(row['rank_2026'])} (Δ {rank_delta:+d})")
+                    else:
+                        st.caption("Позиция: n/a")
 
             compare_vals = detail_rank[["metric_label", "pct_2025", "pct_2026"]].melt(
                 id_vars="metric_label", var_name="year", value_name="value"
@@ -675,6 +730,86 @@ def main() -> None:
                     mapped_cnt["pct"] = (mapped_cnt["count"] / max(1, len(company_sent)) * 100).round(1)
                     mapped_cnt["label"] = mapped_cnt["pct"].map(lambda x: f"{x:.1f}%")
                     st.altair_chart(_bar_pct_vertical(mapped_cnt, "Ответ", "pct", "Категории"), use_container_width=True)
+
+            st.divider()
+            st.markdown("#### Структура отношения к компании по сегментам аудитории")
+            response_filter = st.multiselect(
+                "Показывать группы отношения",
+                options=MAPPED_RESPONSE_ORDER,
+                default=MAPPED_RESPONSE_ORDER,
+                key=f"company_response_filter_{selected_key}",
+            )
+            if not response_filter:
+                st.info("Выбери хотя бы одну группу отношения для отображения.")
+            d1, d2 = st.columns(2)
+            with d1:
+                age_dist = _company_demographic_distribution(company_sent, filtered_resp, "Возраст", AGE_ORDER)
+                age_dist = age_dist[age_dist["response_mapped"].isin(response_filter)]
+                if not age_dist.empty:
+                    st.altair_chart(
+                        _grouped_pct_chart(
+                            age_dist,
+                            "Возраст",
+                            "response_mapped",
+                            "pct",
+                            "Age × отношение",
+                            unit_title="%",
+                            x_sort=AGE_ORDER,
+                        ),
+                        use_container_width=True,
+                    )
+            with d2:
+                gender_dist = _company_demographic_distribution(company_sent, filtered_resp, "Гендер")
+                gender_dist = gender_dist[gender_dist["response_mapped"].isin(response_filter)]
+                if not gender_dist.empty:
+                    st.altair_chart(
+                        _grouped_pct_chart(gender_dist, "Гендер", "response_mapped", "pct", "Gender × отношение", unit_title="%"),
+                        use_container_width=True,
+                    )
+            d3, d4 = st.columns(2)
+            with d3:
+                exp_dist = _company_demographic_distribution(
+                    company_sent, filtered_resp, "Опыт работы в ИТ / Digital", EXPERIENCE_ORDER
+                )
+                exp_dist = exp_dist[exp_dist["response_mapped"].isin(response_filter)]
+                if not exp_dist.empty:
+                    st.altair_chart(
+                        _grouped_pct_chart(
+                            exp_dist,
+                            "Опыт работы в ИТ / Digital",
+                            "response_mapped",
+                            "pct",
+                            "Experience × отношение",
+                            unit_title="%",
+                            x_sort=EXPERIENCE_ORDER,
+                        ),
+                        use_container_width=True,
+                    )
+            with d4:
+                spec_dist = _company_demographic_distribution(
+                    company_sent, filtered_resp, "К какой специализации Вы себя относите?"
+                )
+                spec_dist = spec_dist[spec_dist["response_mapped"].isin(response_filter)]
+                if not spec_dist.empty:
+                    top_specs = (
+                        spec_dist.groupby("К какой специализации Вы себя относите?")["count"]
+                        .sum()
+                        .sort_values(ascending=False)
+                        .head(10)
+                        .index
+                    )
+                    spec_dist = spec_dist[spec_dist["К какой специализации Вы себя относите?"].isin(top_specs)]
+                    st.altair_chart(
+                        _grouped_pct_chart(
+                            spec_dist,
+                            "К какой специализации Вы себя относите?",
+                            "response_mapped",
+                            "pct",
+                            "Specialization × отношение",
+                            unit_title="%",
+                        ),
+                        use_container_width=True,
+                    )
 
             # Аналитическая визуализация - простая и понятная
             st.divider()
@@ -715,9 +850,9 @@ def main() -> None:
                     "Метрика": METRIC_KIND_LABEL[mk],
                     "Компания": f"{company_pct:.1f}%",
                     "Среднее по рынку": f"{overall_pct:.1f}%",
-                    "Δ от рынка": f"{diff_overall:+.1f} п.п.",
+                    "Δ от рынка": f"{diff_overall:+.1f} %",
                     f"Среднее по «{company_sector}»": f"{sector_pct:.1f}%",
-                    "Δ от сектора": f"{diff_sector:+.1f} п.п.",
+                    "Δ от сектора": f"{diff_sector:+.1f} %",
                 })
             
             if stats_rows:
@@ -754,7 +889,7 @@ def main() -> None:
                         st.metric(
                             label="📊 vs Рынок",
                             value=f"{overall_pct:.1f}%",
-                            delta=f"{diff_overall:+.1f} п.п.",
+                            delta=f"{diff_overall:+.1f} %",
                             delta_color="normal" if diff_overall >= 0 else "inverse"
                         )
                         # Линейная шкала: центр = среднее по рынку
@@ -789,7 +924,7 @@ def main() -> None:
                         ).encode(x="x:Q", y="y:Q", tooltip=["label"])
                         
                         company_text_market = alt.Chart(pd.DataFrame({
-                            "x": [diff_overall], "y": [0], "label": [f"{company_pct:.1f}% ({diff_overall:+.1f} п.п.)"]
+                            "x": [diff_overall], "y": [0], "label": [f"{company_pct:.1f}% ({diff_overall:+.1f} %)"]
                         })).mark_text(
                             dy=20, fontSize=12, color=company_color_market, fontWeight="bold"
                         ).encode(x="x:Q", y="y:Q", text="label:N")
@@ -804,7 +939,7 @@ def main() -> None:
                         st.metric(
                             label=f"🏭 vs Сектор «{company_sector}»",
                             value=f"{sector_pct:.1f}%",
-                            delta=f"{diff_sector:+.1f} п.п.",
+                            delta=f"{diff_sector:+.1f} %",
                             delta_color="normal" if diff_sector >= 0 else "inverse"
                         )
                         # Линейная шкала: центр = среднее по сектору
@@ -833,7 +968,7 @@ def main() -> None:
                         ).encode(x="x:Q", y="y:Q", tooltip=["label"])
                         
                         company_text_sector = alt.Chart(pd.DataFrame({
-                            "x": [diff_sector], "y": [0], "label": [f"{company_pct:.1f}% ({diff_sector:+.1f} п.п.)"]
+                            "x": [diff_sector], "y": [0], "label": [f"{company_pct:.1f}% ({diff_sector:+.1f} %)"]
                         })).mark_text(
                             dy=20, fontSize=12, color=company_color_sector, fontWeight="bold"
                         ).encode(x="x:Q", y="y:Q", text="label:N")
@@ -868,8 +1003,11 @@ def main() -> None:
 
             cmp_chg = cmp_rank.dropna(subset=["change_pp_100"]).copy()
             if not cmp_chg.empty:
-                cmp_chg["label"] = cmp_chg["change_pp_100"].map(lambda x: f"{x:.1f} п.п.")
-                st.altair_chart(_grouped_pct_chart(cmp_chg, "metric_label", "company_display", "change_pp_100", "Изменения"), use_container_width=True)
+                cmp_chg["label"] = cmp_chg["change_pp_100"].map(lambda x: f"{x:.1f} %")
+                st.altair_chart(
+                    _grouped_pct_chart(cmp_chg, "metric_label", "company_display", "change_pp_100", "Изменения", unit_title="%"),
+                    use_container_width=True,
+                )
 
             cmp_table = cmp_rank[["company_display", "metric_label", "pct_2025", "pct_2026", "change_pp", "rank_2025", "rank_2026", "change_rank"]].copy()
             cmp_table["pct_2025"] = (cmp_table["pct_2025"] * 100).round(1)
@@ -877,7 +1015,7 @@ def main() -> None:
             cmp_table["change_pp"] = (cmp_table["change_pp"] * 100).round(1)
             cmp_table = cmp_table.rename(columns={
                 "company_display": "Компания", "metric_label": "Метрика", "pct_2025": "2025, %",
-                "pct_2026": "2026, %", "change_pp": "Изм., п.п.", "rank_2025": "Место 2025",
+                "pct_2026": "2026, %", "change_pp": "Изм., %", "rank_2025": "Место 2025",
                 "rank_2026": "Место 2026", "change_rank": "Изм. места",
             })
             st.dataframe(cmp_table.sort_values(["Метрика", "Компания"]), use_container_width=True, hide_index=True)

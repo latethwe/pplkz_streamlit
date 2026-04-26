@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import re
 from typing import Any
 
 import pandas as pd
@@ -45,9 +46,16 @@ class SurveyData:
 def normalize_company_name(name: Any) -> str:
     """Нормализует название компании для использования как ключ"""
     s = str(name or "").lower().strip()
-    for ch in ["&", "/", "-", "(", ")", ".", ",", "«", "»", """, """, "'", "\""]:
+    for ch in ["&", "/", "-", "(", ")", ".", ",", "«", "»", "'", "\""]:
         s = s.replace(ch, " ")
     return " ".join(s.split())
+
+
+def _clean_company_name(name: Any) -> str:
+    """Убирает технический префикс ранга вида '83. Company'"""
+    s = str(name or "").strip()
+    s = re.sub(r"^\d+\.\s*", "", s)
+    return s
 
 
 def _float_or_none(v: Any) -> float | None:
@@ -127,11 +135,12 @@ def _parse_rankings(path: Path) -> pd.DataFrame:
             rec = {
                 "metric_kind": metric_kind,
                 "metric_label": METRIC_KIND_LABEL[metric_kind],
-                "company": str(company).strip(),
-                "company_key": normalize_company_name(company),
+                "company": _clean_company_name(company),
+                "company_key": normalize_company_name(_clean_company_name(company)),
                 "sector": str(sector).strip() if sector not in (None, "") else "Unknown",
                 "rank_sort_2026": rank_sort,
                 "company_name_2025": ws.cell(r, 24).value,
+                "company_name_2025_key": normalize_company_name(_clean_company_name(ws.cell(r, 24).value)),
                 "pct_2025": _float_or_none(ws.cell(r, 26).value),
                 "rank_2025": _int_or_none(ws.cell(r, 27).value),
                 "pct_2026": _float_or_none(ws.cell(r, 29).value),
@@ -146,6 +155,58 @@ def _parse_rankings(path: Path) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def _parse_rankings_2025_lookup(path: Path) -> pd.DataFrame:
+    """Парсит корректные значения 2025 по метрикам из листа 2025."""
+    wb = load_workbook(path, data_only=True)
+    ws = wb["Свод (ТОП ВСЕ Компании) 2025"]
+
+    section_starts: list[int] = []
+    for r in range(1, ws.max_row + 1):
+        v = ws.cell(r, 1).value
+        if isinstance(v, str) and v.strip().startswith("Сортировка по"):
+            section_starts.append(r)
+
+    pct_col_by_metric = {
+        "want": 15,
+        "dont_want": 17,
+        "uncertainty": 21,
+        "brand_awareness": 23,
+    }
+
+    rows: list[dict[str, Any]] = []
+    for i, start in enumerate(section_starts):
+        title = str(ws.cell(start, 1).value).strip()
+        metric_kind = METRIC_KIND_MAP.get(title)
+        if metric_kind is None:
+            continue
+
+        data_start = start + 2
+        data_end = (section_starts[i + 1] - 1) if i + 1 < len(section_starts) else ws.max_row
+        pct_col = pct_col_by_metric.get(metric_kind)
+        if pct_col is None:
+            continue
+
+        for r in range(data_start, data_end + 1):
+            rank_2025 = _int_or_none(ws.cell(r, 1).value)
+            company = ws.cell(r, 4).value
+            if rank_2025 is None or company in (None, ""):
+                continue
+
+            company_clean = _clean_company_name(company)
+            rows.append(
+                {
+                    "metric_kind": metric_kind,
+                    "company_key": normalize_company_name(company_clean),
+                    "company_2025_key": normalize_company_name(company_clean),
+                    "company_2025_sheet": company_clean,
+                    "pct_2025_fix": _float_or_none(ws.cell(r, pct_col).value),
+                    "rank_2025_fix": rank_2025,
+                }
+            )
+
+    return pd.DataFrame(rows)
+
+
 def load_survey_data(path: str | Path) -> SurveyData:
     """Загружает все данные опроса из Excel файла"""
     file_path = Path(path)
@@ -155,6 +216,7 @@ def load_survey_data(path: str | Path) -> SurveyData:
     # Парсим компании и рейтинги
     companies_meta = _parse_companies_meta(file_path)
     rankings = _parse_rankings(file_path)
+    rankings_2025_lookup = _parse_rankings_2025_lookup(file_path)
 
     # Загружаем ответы
     responses = pd.read_excel(file_path, sheet_name="Ответы на форму", header=2)
@@ -229,6 +291,30 @@ def load_survey_data(path: str | Path) -> SurveyData:
 
     # Добавляем информацию о секторе в рейтинги
     if not rankings.empty:
+        if not rankings_2025_lookup.empty:
+            rankings = rankings.merge(
+                rankings_2025_lookup[
+                    ["metric_kind", "company_2025_key", "pct_2025_fix", "rank_2025_fix"]
+                ],
+                left_on=["metric_kind", "company_name_2025_key"],
+                right_on=["metric_kind", "company_2025_key"],
+                how="left",
+            )
+            rankings["pct_2025"] = rankings["pct_2025_fix"].combine_first(rankings["pct_2025"])
+            rankings["rank_2025"] = rankings["rank_2025_fix"].combine_first(rankings["rank_2025"])
+            rankings = rankings.drop(columns=["pct_2025_fix", "rank_2025_fix", "company_2025_key"])
+
+        # Пересчитываем производные показатели на основе скорректированных значений 2025.
+        mask_pct = rankings["pct_2025"].notna() & rankings["pct_2026"].notna()
+        rankings.loc[mask_pct, "change_pp"] = rankings.loc[mask_pct, "pct_2026"] - rankings.loc[mask_pct, "pct_2025"]
+
+        mask_rel = mask_pct & rankings["pct_2025"].ne(0)
+        rankings.loc[mask_rel, "change_pct_rel"] = rankings.loc[mask_rel, "change_pp"] / rankings.loc[mask_rel, "pct_2025"]
+        rankings.loc[mask_pct & rankings["pct_2025"].eq(0), "change_pct_rel"] = pd.NA
+
+        mask_rank = rankings["rank_2025"].notna() & rankings["rank_2026"].notna()
+        rankings.loc[mask_rank, "change_rank"] = rankings.loc[mask_rank, "rank_2025"] - rankings.loc[mask_rank, "rank_2026"]
+
         rankings = rankings.merge(
             companies_meta[["company_key", "sector"]].rename(columns={"sector": "sector_meta"}),
             on="company_key",
