@@ -130,6 +130,31 @@ def setup_page():
     [data-testid="stDataFrame"] tbody tr:hover {
         background-color: #0f172a;
     }
+
+    /* Графики - скруглённый фон-контейнер */
+    [data-testid="stVegaLiteChart"] {
+        background: linear-gradient(135deg, rgba(30, 41, 59, 0.75) 0%, rgba(15, 23, 42, 0.85) 100%);
+        border: 1px solid rgba(59, 130, 246, 0.35);
+        border-radius: 16px;
+        padding: 0;
+        box-shadow: 0 8px 24px rgba(15, 23, 42, 0.35);
+        overflow: visible;
+    }
+
+    [data-testid="stVegaLiteChart"] > div {
+        border-radius: 16px;
+        overflow: visible;
+        background: #020617 !important;
+        padding: 0.2rem;
+    }
+
+    [data-testid="stVegaLiteChart"] .vega-embed,
+    [data-testid="stVegaLiteChart"] .vega-embed > div,
+    [data-testid="stVegaLiteChart"] canvas,
+    [data-testid="stVegaLiteChart"] svg {
+        background: #020617 !important;
+        border-radius: 12px;
+    }
     
     /* Tabs - красивые вкладки */
     [data-testid="stTabs"] [role="tab"] {
@@ -291,6 +316,8 @@ FACTOR_GROUP_LABELS = {
 
 # Красивая палитра для графиков
 CHART_COLORS = ["#3b82f6", "#06b6d4", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6"]
+BAR_CORNER_RADIUS = 9
+BAR_CORNER_RADIUS_SMALL = 7
 
 
 # ============================================================================
@@ -307,6 +334,18 @@ def _fmt_int(v: float | int | None) -> str:
     if v is None or pd.isna(v):
         return "n/a"
     return f"{int(v)}"
+
+
+def _style_chart(chart: alt.Chart) -> alt.Chart:
+    return chart.properties(
+        padding={"left": 18, "right": 20, "top": 16, "bottom": 10}
+    ).configure_title(
+        dx=8
+    ).configure(background="#020617").configure_view(
+        fill="#020617",
+        strokeWidth=0,
+        strokeOpacity=0,
+    )
 
 
 @st.cache_data(show_spinner=True)
@@ -356,16 +395,16 @@ def _make_pct_table(df: pd.DataFrame, category_col: str, sort_categories: list[s
 
 def _bar_pct_vertical(df: pd.DataFrame, x_col: str, y_col: str, title: str, color_col: str | None = None) -> alt.Chart:
     if color_col:
-        bar = alt.Chart(df).mark_bar(cornerRadius=4).encode(
+        bar = alt.Chart(df).mark_bar(cornerRadius=BAR_CORNER_RADIUS).encode(
             x=alt.X(f"{x_col}:N", title=x_col, axis=alt.Axis(labelAngle=0)),
-            y=alt.Y(f"{y_col}:Q", title="%", axis=alt.Axis(format=".1f")),
+            y=alt.Y(f"{y_col}:Q", title=None, axis=alt.Axis(format=".1f")),
             color=alt.Color(f"{color_col}:N", scale=alt.Scale(scheme="tableau10")),
             tooltip=[x_col, color_col, alt.Tooltip(f"{y_col}:Q", format=".1f")],
         )
     else:
-        bar = alt.Chart(df).mark_bar(color="#3b82f6", cornerRadius=4).encode(
+        bar = alt.Chart(df).mark_bar(color="#3b82f6", cornerRadius=BAR_CORNER_RADIUS).encode(
             x=alt.X(f"{x_col}:N", title=x_col, axis=alt.Axis(labelAngle=0)),
-            y=alt.Y(f"{y_col}:Q", title="%", axis=alt.Axis(format=".1f")),
+            y=alt.Y(f"{y_col}:Q", title=None, axis=alt.Axis(format=".1f")),
             tooltip=[x_col, alt.Tooltip(f"{y_col}:Q", format=".1f")],
         )
 
@@ -374,23 +413,23 @@ def _bar_pct_vertical(df: pd.DataFrame, x_col: str, y_col: str, title: str, colo
         y=alt.Y(f"{y_col}:Q"),
         text="label:N",
     )
-    return (bar + text).properties(title=title, height=350).configure_title(fontSize=14, anchor="start", color="#60a5fa")
+    return _style_chart((bar + text).properties(title=title, height=350).configure_title(fontSize=14, anchor="start", color="#60a5fa"))
 
 
 def _bar_pct_horizontal(
     df: pd.DataFrame, x_col: str, y_col: str, title: str, color_col: str | None = None
 ) -> alt.Chart:
     if color_col:
-        bar = alt.Chart(df).mark_bar(cornerRadius=4).encode(
+        bar = alt.Chart(df).mark_bar(cornerRadius=BAR_CORNER_RADIUS).encode(
             x=alt.X(f"{x_col}:Q", title="%", axis=alt.Axis(format=".1f")),
-            y=alt.Y(f"{y_col}:N", sort="-x", title=y_col),
+            y=alt.Y(f"{y_col}:N", sort="-x", title=None),
             color=alt.Color(f"{color_col}:N", scale=alt.Scale(scheme="tableau10")),
             tooltip=[y_col, color_col, alt.Tooltip(f"{x_col}:Q", format=".1f")],
         )
     else:
-        bar = alt.Chart(df).mark_bar(color="#3b82f6", cornerRadius=4).encode(
+        bar = alt.Chart(df).mark_bar(color="#3b82f6", cornerRadius=BAR_CORNER_RADIUS).encode(
             x=alt.X(f"{x_col}:Q", title="%", axis=alt.Axis(format=".1f")),
-            y=alt.Y(f"{y_col}:N", sort="-x", title=y_col),
+            y=alt.Y(f"{y_col}:N", sort="-x", title=None),
             tooltip=[y_col, alt.Tooltip(f"{x_col}:Q", format=".1f")],
         )
     text = alt.Chart(df).mark_text(align="left", dx=5, fontSize=11, color="#60a5fa", fontWeight="bold").encode(
@@ -398,14 +437,14 @@ def _bar_pct_horizontal(
         y=alt.Y(f"{y_col}:N", sort="-x"),
         text="label:N",
     )
-    return (bar + text).properties(title=title, height=400).configure_title(fontSize=14, anchor="start", color="#60a5fa")
+    return _style_chart((bar + text).properties(title=title, height=400).configure_title(fontSize=14, anchor="start", color="#60a5fa"))
 
 
 def _grouped_pct_chart(df: pd.DataFrame, x: str, group: str, y: str, title: str) -> alt.Chart:
-    bar = alt.Chart(df).mark_bar(cornerRadius=3).encode(
+    bar = alt.Chart(df).mark_bar(cornerRadius=BAR_CORNER_RADIUS_SMALL).encode(
         x=alt.X(f"{x}:N", title=x),
         xOffset=alt.XOffset(f"{group}:N", title=group),
-        y=alt.Y(f"{y}:Q", title="%", axis=alt.Axis(format=".1f")),
+        y=alt.Y(f"{y}:Q", title=None, axis=alt.Axis(format=".1f")),
         color=alt.Color(f"{group}:N", scale=alt.Scale(scheme="tableau10")),
         tooltip=[x, group, alt.Tooltip(f"{y}:Q", format=".1f")],
     )
@@ -415,12 +454,12 @@ def _grouped_pct_chart(df: pd.DataFrame, x: str, group: str, y: str, title: str)
         y=alt.Y(f"{y}:Q"),
         text="label:N",
     )
-    return (bar + text).properties(title=title, height=350).configure_title(fontSize=14, anchor="start", color="#60a5fa")
+    return _style_chart((bar + text).properties(title=title, height=350).configure_title(fontSize=14, anchor="start", color="#60a5fa"))
 
 
 def _sector_comparison_chart(df: pd.DataFrame, metric_col: str, title: str) -> alt.Chart:
     """График сравнения компаний внутри сектора"""
-    bar = alt.Chart(df).mark_bar(cornerRadius=4).encode(
+    bar = alt.Chart(df).mark_bar(cornerRadius=BAR_CORNER_RADIUS).encode(
         x=alt.X(f"{metric_col}:Q", title="%", axis=alt.Axis(format=".1f")),
         y=alt.Y("company:N", sort="-x", title=""),
         color=alt.Color("company:N", scale=alt.Scale(scheme="tableau20"), legend=None),
@@ -431,9 +470,9 @@ def _sector_comparison_chart(df: pd.DataFrame, metric_col: str, title: str) -> a
         y=alt.Y("company:N", sort="-x"),
         text=alt.Text(f"{metric_col}:Q", format=".1f"),
     )
-    return (bar + text).properties(title=title, height=max(250, len(df) * 35)).configure_title(
+    return _style_chart((bar + text).properties(title=title, height=max(250, len(df) * 35)).configure_title(
         fontSize=14, anchor="start", color="#60a5fa"
-    )
+    ))
 
 
 def _company_name_map(companies: pd.DataFrame) -> dict[str, str]:
@@ -811,7 +850,7 @@ def main() -> None:
                             height=100
                         ).configure_view(strokeWidth=0)
                         
-                        st.altair_chart(chart_market, use_container_width=True)
+                        st.altair_chart(_style_chart(chart_market), use_container_width=True)
                     
                     with c2:
                         st.metric(
@@ -854,7 +893,7 @@ def main() -> None:
                             height=100
                         ).configure_view(strokeWidth=0)
                         
-                        st.altair_chart(chart_sector, use_container_width=True)
+                        st.altair_chart(_style_chart(chart_sector), use_container_width=True)
                     
                     st.markdown("")
 
@@ -973,7 +1012,7 @@ def main() -> None:
                 sector_change["change_pp_pct"] = (sector_change["change_pp"] * 100).round(1)
 
                 if not sector_change.empty:
-                    change_chart = alt.Chart(sector_change).mark_bar(cornerRadius=4).encode(
+                    change_chart = alt.Chart(sector_change).mark_bar(cornerRadius=BAR_CORNER_RADIUS).encode(
                         x=alt.X("change_pp_pct:Q", title="Изм., п.п.", axis=alt.Axis(format=".1f")),
                         y=alt.Y("company:N", sort="-x", title=""),
                         color=alt.condition(
@@ -987,7 +1026,7 @@ def main() -> None:
                         height=max(250, len(sector_change) * 35)
                     ).configure_title(fontSize=14, anchor="start", color="#60a5fa")
                     
-                    st.altair_chart(change_chart, use_container_width=True)
+                    st.altair_chart(_style_chart(change_chart), use_container_width=True)
 
     with tab7:
         st.markdown("### 🎓 Экспертная оценка vs Остальные")
@@ -1194,7 +1233,7 @@ def main() -> None:
                             # Сортируем по экспертам
                             company_order = experts_view.sort_values("want_pct_100", ascending=False)["company"].tolist()
                             
-                            chart_compare = alt.Chart(combined).mark_bar(cornerRadius=3).encode(
+                            chart_compare = alt.Chart(combined).mark_bar(cornerRadius=BAR_CORNER_RADIUS_SMALL).encode(
                                 y=alt.Y("company:N", sort=company_order, title=""),
                                 yOffset=alt.YOffset("group:N"),
                                 x=alt.X("pct:Q", title="% хотят работать", axis=alt.Axis(format=".1f")),
@@ -1208,7 +1247,7 @@ def main() -> None:
                                 height=max(400, len(company_order) * 40)
                             ).configure_title(fontSize=14, anchor="start", color="#60a5fa")
                             
-                            st.altair_chart(chart_compare, use_container_width=True)
+                            st.altair_chart(_style_chart(chart_compare), use_container_width=True)
                             
                             st.divider()
                             st.markdown("#### 📋 Сводная таблица: разница в оценках")
@@ -1385,7 +1424,7 @@ def main() -> None:
                 if not freedom_change.empty:
                     freedom_change["change_pp_pct"] = (freedom_change["change_pp"] * 100).round(1)
                     
-                    change_freedom = alt.Chart(freedom_change).mark_bar(cornerRadius=4).encode(
+                    change_freedom = alt.Chart(freedom_change).mark_bar(cornerRadius=BAR_CORNER_RADIUS).encode(
                         x=alt.X("change_pp_pct:Q", title="Изм., п.п.", axis=alt.Axis(format=".1f")),
                         y=alt.Y("company:N", sort="-x", title=""),
                         color=alt.condition(
@@ -1399,7 +1438,7 @@ def main() -> None:
                         height=max(200, len(freedom_change) * 40)
                     ).configure_title(fontSize=14, anchor="start", color="#60a5fa")
                     
-                    st.altair_chart(change_freedom, use_container_width=True)
+                    st.altair_chart(_style_chart(change_freedom), use_container_width=True)
 
 
 if __name__ == "__main__":
