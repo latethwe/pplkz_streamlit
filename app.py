@@ -306,6 +306,13 @@ RAW_RESPONSE_ORDER = [
     "Я не знаю эту компанию",
 ]
 MAPPED_RESPONSE_ORDER = ["Хочу", "Не уверен", "Не хочу", "Я не знаю эту компанию"]
+RESPONSE_GROUP_LABEL = {
+    "Хочу": "Хочу",
+    "Не хочу": "Не хочу",
+    "Не уверен": "Не уверен",
+    "Я не знаю эту компанию": "Не знаю бренд",
+}
+RESPONSE_GROUP_DISPLAY_ORDER = ["Хочу", "Не хочу", "Не уверен", "Не знаю бренд"]
 
 FACTOR_GROUP_LABELS = {
     "top_factors": "Факторы выбора работодателя",
@@ -725,8 +732,103 @@ def main() -> None:
                     mapped_cnt["label"] = mapped_cnt["pct"].map(lambda x: f"{x:.1f}%")
                     st.altair_chart(_bar_pct_vertical(mapped_cnt, "Ответ", "pct", "Категории"), use_container_width=True)
 
-            # Аналитическая визуализация - простая и понятная
             st.divider()
+            st.markdown("#### Структура отношения к компании по сегментам аудитории")
+            show_segment_charts = st.toggle(
+                "Показать сегментные графики (age, specialization, gender, experience)",
+                value=False,
+                key=f"show_segment_charts_{selected_key}",
+            )
+
+            if show_segment_charts:
+                display_to_response = {v: k for k, v in RESPONSE_GROUP_LABEL.items()}
+                selected_group_display = st.multiselect(
+                    "Группа отношения",
+                    options=RESPONSE_GROUP_DISPLAY_ORDER,
+                    default=RESPONSE_GROUP_DISPLAY_ORDER,
+                    key=f"response_group_filter_{selected_key}",
+                )
+
+                if not selected_group_display:
+                    st.info("Выберите минимум 1 группу отношения.")
+                else:
+                    selected_groups = [display_to_response[x] for x in selected_group_display]
+
+                    def _prepare_segment_chart(
+                        dim_col: str,
+                        order: list[str] | None = None,
+                        top_n: int | None = None,
+                    ) -> pd.DataFrame:
+                        dist = _company_demographic_distribution(company_sent, filtered_resp, dim_col, order)
+                        dist = dist[dist["response_mapped"].isin(selected_groups)].copy()
+                        if top_n is not None and not dist.empty:
+                            top_vals = (
+                                dist.groupby(dim_col)["count"].sum().sort_values(ascending=False).head(top_n).index
+                            )
+                            dist = dist[dist[dim_col].isin(top_vals)].copy()
+                        dist["response_group"] = dist["response_mapped"].map(RESPONSE_GROUP_LABEL)
+                        dist["label"] = dist["pct"].map(lambda x: f"{x:.1f}%")
+                        if order:
+                            dist[dim_col] = pd.Categorical(dist[dim_col], categories=order, ordered=True)
+                            dist = dist.sort_values([dim_col, "response_group"])
+                        return dist
+
+                    s1, s2 = st.columns(2)
+                    with s1:
+                        age_dist = _prepare_segment_chart("Возраст", AGE_ORDER)
+                        if age_dist.empty:
+                            st.info("Нет данных по возрасту для выбранных групп.")
+                        else:
+                            st.altair_chart(
+                                _grouped_pct_chart(age_dist, "Возраст", "response_group", "pct", "Age × отношение"),
+                                use_container_width=True,
+                            )
+                    with s2:
+                        gender_dist = _prepare_segment_chart("Гендер")
+                        if gender_dist.empty:
+                            st.info("Нет данных по гендеру для выбранных групп.")
+                        else:
+                            st.altair_chart(
+                                _grouped_pct_chart(gender_dist, "Гендер", "response_group", "pct", "Gender × отношение"),
+                                use_container_width=True,
+                            )
+
+                    s3, s4 = st.columns(2)
+                    with s3:
+                        exp_dist = _prepare_segment_chart("Опыт работы в ИТ / Digital", exps)
+                        if exp_dist.empty:
+                            st.info("Нет данных по опыту для выбранных групп.")
+                        else:
+                            st.altair_chart(
+                                _grouped_pct_chart(
+                                    exp_dist,
+                                    "Опыт работы в ИТ / Digital",
+                                    "response_group",
+                                    "pct",
+                                    "Experience × отношение",
+                                ),
+                                use_container_width=True,
+                            )
+                    with s4:
+                        spec_dist = _prepare_segment_chart(
+                            "К какой специализации Вы себя относите?",
+                            top_n=12,
+                        )
+                        if spec_dist.empty:
+                            st.info("Нет данных по специализациям для выбранных групп.")
+                        else:
+                            st.altair_chart(
+                                _grouped_pct_chart(
+                                    spec_dist,
+                                    "К какой специализации Вы себя относите?",
+                                    "response_group",
+                                    "pct",
+                                    "Specialization × отношение",
+                                ),
+                                use_container_width=True,
+                            )
+
+            # Аналитическая визуализация - простая и понятная
             st.markdown("#### 📊 Сравнение со средними показателями")
             
             # Вычисляем средние по всем компаниям
